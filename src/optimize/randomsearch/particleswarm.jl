@@ -32,7 +32,7 @@ ParticleSwarm(;
     σmax,
 )
 
-summary(::ParticleSwarm) = "Adaptive Particle Swarm"
+summary(::ParticleSwarm) = "Adaptive Particle Swarm (using Threads)"
 function solve(
     problem::OptimizationProblem,
     x0,
@@ -64,10 +64,14 @@ function solve(
     end
     current_state = 0
 
-    # spread the initial population uniformly over the whole search space
+    #### CHANGE: I'm not sure if this is the best way to initialize the swarm
+    # instead of linearly (uniformly only in the direction vector "width") spreading the particles, 
+    # we should spread them uniformly over all dimensions
+    ## old: # spread the initial population uniformly over the whole search space
     width = upper .- lower
-    for i = 1:n_particles
-        X[i] .= lower .+ width .* rand(T)
+    @threads for i in 1:n_particles
+        ##X[i] .= lower .+ width .* rand(T)
+        X[i] .= lower .+ width .* rand(T, n)
         X_best[i] .= X[i]
     end
 
@@ -77,6 +81,7 @@ function solve(
     X_best[1] .= x0
     X[1] .= x0
     iter = 0
+    #p = Progress(options.maxiter; dt=1.0)
     while iter < options.maxiter
         iter += 1
         limit_X!(X, lower, upper)
@@ -122,7 +127,9 @@ function solve(
         current_state, swarm_f = get_swarm_state(X, Fs, x, current_state)
         ω, c₁, c₂ = update_swarm_params!(c₁, c₂, ω, current_state, swarm_f)
         update_swarm!(X, X_best, x, n, V, ω, c₁, c₂)
+        #next!(p)
     end
+    #finish!(p)
     best_f, x
     ConvergenceInfo(
         method,
@@ -146,7 +153,7 @@ function update_swarm!(X, X_best, best_point, n, V, ω, c₁, c₂)
     Tx = eltype(first(X))
     # compute new positions for the swarm particles
     # FIXME vmax should be 20%
-    for i in eachindex(X, X_best)
+    @threads for i in eachindex(X, X_best)
         for j = 1:n
             r1 = rand(Tx)
             r2 = rand(Tx)
@@ -216,8 +223,8 @@ function get_swarm_state(X, Fs, best_point, previous_state)
     Tx = eltype(first(X))
     f_best, i_best = findmin(Fs)
     d = zeros(Tx, n_particles)
-    for i = 1:n_particles
-        dd = Tx(0)
+    @threads for i = 1:n_particles
+        dd = zero(Tx) #Tx(0)
         for k = 1:n_particles
             for dim = 1:n
                 @inbounds ddd = (X[i][dim] - X[k][dim])
@@ -352,7 +359,7 @@ end
 
 function limit_X!(X, lower, upper)
     # limit X values to boundaries
-    for x in X
+    @threads for x in X
         x .= min.(max.(x, lower), upper)
     end
     X
